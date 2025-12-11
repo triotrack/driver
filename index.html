@@ -2,72 +2,102 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Driver App - TrioTrack</title>
+    <title>Driver App - Debug Mode</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-dark text-white">
 
 <div class="container mt-5">
+    
     <div id="login-panel" class="card mx-auto bg-secondary" style="max-width: 400px;">
         <div class="card-body">
-            <h3 class="text-center mb-4">Driver Login</h3>
+            <h3 class="text-center mb-4">🚍 Driver Login</h3>
+            <div class="alert alert-info small">Debug Mode Active</div>
+            
             <div class="mb-3">
-                <input type="text" id="busNumber" class="form-control" placeholder="Bus Number (e.g. KL-01)">
+                <label>Bus Number</label>
+                <input type="text" id="busNumber" class="form-control" placeholder="e.g. KL-01" style="text-transform: uppercase;">
             </div>
             <div class="mb-3">
+                <label>Password</label>
                 <input type="password" id="password" class="form-control" placeholder="Password">
             </div>
-            <button onclick="verifyAndLogin()" class="btn btn-warning w-100">Start Trip</button>
-            <p id="msg" class="text-danger mt-2 text-center"></p>
+            <button id="loginBtn" class="btn btn-warning w-100 fw-bold">Login</button>
+            <p id="msg" class="text-danger mt-3 text-center small"></p>
         </div>
     </div>
 
     <div id="status-panel" class="text-center d-none">
-        <div class="spinner-grow text-success" style="width: 3rem; height: 3rem;" role="status"></div>
-        <h3 class="mt-3">Tracking Active</h3>
-        <h1 id="displayBus" class="text-warning fw-bold display-4"></h1>
-        
-        <div class="card bg-secondary mt-4 p-3 mx-auto" style="max-width: 500px;">
-            <p id="logs" class="mb-0">Waiting for GPS signal...</p>
+        <h1 class="text-success display-1">🟢</h1>
+        <h2 class="mt-3">Tracking Active</h2>
+        <h1 id="displayBus" class="text-warning fw-bold"></h1>
+        <div class="card bg-secondary mt-4 p-3 mx-auto">
+            <p id="logs" class="mb-0 text-info">Waiting for GPS...</p>
         </div>
-        <button onclick="location.reload()" class="btn btn-danger mt-4">Stop Trip</button>
     </div>
 </div>
 
 <script type="module">
-    import { db } from './firebase-config.js';
-    import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-    // 1. Login Verification
-    window.verifyAndLogin = async function() {
+    const firebaseConfig = {
+      apiKey: "AIzaSyDcWwo0m2eS1ndyC06U1G_JF1J7Y1WNlfQ",
+      authDomain: "triotrack-66dd6.firebaseapp.com",
+      projectId: "triotrack-66dd6",
+      storageBucket: "triotrack-66dd6.firebasestorage.app",
+      messagingSenderId: "994389952848",
+      appId: "1:994389952848:web:659fbc330f2d660dfb0455",
+      measurementId: "G-B7TMFX0F21"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    console.log("Firebase initialized");
+
+    document.getElementById('loginBtn').addEventListener('click', async () => {
         const busNum = document.getElementById('busNumber').value.toUpperCase().trim();
         const pass = document.getElementById('password').value.trim();
         const msg = document.getElementById('msg');
 
-        if (!busNum || !pass) return msg.innerText = "Please enter all details";
-        msg.innerText = "Verifying...";
+        if (!busNum || !pass) {
+            alert("Please enter both Bus Number and Password");
+            return;
+        }
+
+        msg.innerText = "Checking Database...";
+        console.log(`Searching for ID: ${busNum} in 'credentials' collection...`);
 
         try {
-            // Check credentials collection
+            // Check credentials
             const docRef = doc(db, "credentials", busNum);
             const docSnap = await getDoc(docRef);
             
             if (docSnap.exists()) {
-                if (docSnap.data().password === pass) {
+                console.log("User Found. Data:", docSnap.data());
+                
+                const dbPass = docSnap.data().password;
+                
+                if (String(dbPass) === String(pass)) {
+                    alert("Login Successful! Starting Tracker...");
                     startTracking(busNum);
                 } else {
+                    alert(`Wrong Password!\nYou entered: ${pass}\nDatabase has: ${dbPass}`);
                     msg.innerText = "Incorrect Password";
                 }
             } else {
-                msg.innerText = "Bus Number not found. Ask Admin.";
+                alert(`User '${busNum}' does not exist in the database.\n\nDid you create it in the 'Create Driver Account' tab on Admin page?`);
+                msg.innerText = "User not found";
             }
         } catch (e) { 
             console.error(e);
+            alert("Connection Error: " + e.message + "\n\n(Check your Firestore Rules!)");
             msg.innerText = "Connection Error"; 
         }
-    };
+    });
 
-    // 2. GPS Tracking Logic
     function startTracking(busNum) {
         document.getElementById('login-panel').classList.add('d-none');
         document.getElementById('status-panel').classList.remove('d-none');
@@ -75,28 +105,19 @@
 
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition(async (pos) => {
-                const { latitude, longitude, speed } = pos.coords;
-                
-                // Write location to Firestore
-                try {
-                    await setDoc(doc(db, "locations", busNum), {
-                        busNumber: busNum,
-                        lat: latitude,
-                        lng: longitude,
-                        speed: speed || 0,
-                        lastUpdated: new Date().toISOString()
-                    });
-                    
-                    const time = new Date().toLocaleTimeString();
-                    document.getElementById('logs').innerHTML = `Lat: ${latitude.toFixed(5)} <br> Lng: ${longitude.toFixed(5)} <br> Updated: ${time}`;
-                } catch(err) {
-                    console.error("Upload failed", err);
-                }
+                const { latitude, longitude } = pos.coords;
+                await setDoc(doc(db, "locations", busNum), {
+                    busNumber: busNum,
+                    lat: latitude,
+                    lng: longitude,
+                    lastUpdated: new Date().toISOString()
+                });
+                document.getElementById('logs').innerText = `GPS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
             }, (err) => {
                 alert("GPS Error: " + err.message);
             }, { enableHighAccuracy: true });
-        } else { 
-            alert("GPS not supported by this browser"); 
+        } else {
+            alert("Geolocation not supported");
         }
     }
 </script>
